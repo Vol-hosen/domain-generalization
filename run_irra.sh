@@ -1,12 +1,19 @@
 #!/bin/bash
-DATASET_NAME="CUHK-PEDES"
+DATASET_NAME="CUHK-PEDES" # 或者 CUHK-PEDES
+DATA_DIR='/mnt/hardisk/wucan/datasets/'
+GPU_ID=0               # 指定空闲的 GPU
 
-CUDA_VISIBLE_DEVICES=0 \
+# --- 运行命令 ---
+export CUDA_VISIBLE_DEVICES=$GPU_ID
+
 python train.py \
---name irra \
+--name irra-cuhk-mse-v2 \
 --img_aug \
 --batch_size 64 \
 --MLM \
 --dataset_name $DATASET_NAME \
 --loss_names 'sdm+mlm+id' \
---num_epoch 60
+--num_epoch 60 \
+--num_workers 8 \
+--root_dir $DATA_DIR  \
+--cons_eps 5e-3 \

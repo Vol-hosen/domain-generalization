@@ -33,7 +33,7 @@ def get_args():
 
     ######################## consistency training settings ########################
     parser.add_argument("--cons_eps", type=float, default=1e-3, help="consistency training perturbation epsilon")
-    
+    parser.add_argument("--cons_warmup_epochs", type=int, default=10, help="after how many epochs to start consistency training")
     ######################## vison trainsformer settings ########################
     parser.add_argument("--img_size", type=tuple, default=(384, 128))
     parser.add_argument("--stride_size", type=int, default=16)
