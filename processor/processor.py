@@ -6,6 +6,7 @@ from utils.metrics import Evaluator
 from utils.comm import get_rank, synchronize
 from torch.utils.tensorboard import SummaryWriter
 from prettytable import PrettyTable
+import torch.nn.functional as F
 
 
 def do_train(start_epoch, args, model, train_loader, evaluator, optimizer,
@@ -30,7 +31,9 @@ def do_train(start_epoch, args, model, train_loader, evaluator, optimizer,
         "mlm_loss": AverageMeter(),
         "img_acc": AverageMeter(),
         "txt_acc": AverageMeter(),
-        "mlm_acc": AverageMeter()
+        "mlm_acc": AverageMeter(),
+        "cons_loss": AverageMeter(),
+        "delta_sim": AverageMeter()
     }
 
     tb_writer = SummaryWriter(log_dir=args.output_dir)
@@ -48,7 +51,36 @@ def do_train(start_epoch, args, model, train_loader, evaluator, optimizer,
             batch = {k: v.to(device) for k, v in batch.items()}
 
             ret = model(batch)
+
+            i_feats = ret['i_feats']
+            t_feats = ret['t_feats']
+
+            # Phase-1: random embedding perturbation
+            epsilon = args.cons_eps  # e.g. 1e-3
+            with torch.no_grad():
+                # 1. 生成原始噪声
+                noise = torch.randn_like(i_feats)
+                # 2. 投影到切平面: noise = noise - (noise · feat) * feat
+                # 这样确保 noise ⊥ i_feats
+                noise = noise - (noise * i_feats).sum(dim=1, keepdim=True) * i_feats
+                # 3. 单位化噪声方向，并缩放到 epsilon 步长
+                noise = F.normalize(noise, dim=1) 
+
+            # 4. 在切平面方向施加扰动并重新归一化（回到球面上）
+            i_feats_pert = F.normalize(i_feats + epsilon * noise, dim=1)
+
+            # --- Consistency Loss ---
+            sim_orig = F.cosine_similarity(i_feats, t_feats, dim=1)
+            sim_pert = F.cosine_similarity(i_feats_pert, t_feats, dim=1)
+
+            cons_loss = F.mse_loss(sim_pert, sim_orig.detach())
+
+            # --- Logging (非常重要) ---
+            with torch.no_grad():
+                delta_sim = torch.abs(sim_orig - sim_pert).mean()
+                # 可以通过 wandb 或 tensorboard 监控这个值
             total_loss = sum([v for k, v in ret.items() if "loss" in k])
+            total_loss += args.cons_loss_weight * cons_loss
 
             batch_size = batch['images'].shape[0]
             meters['loss'].update(total_loss.item(), batch_size)
@@ -56,6 +88,8 @@ def do_train(start_epoch, args, model, train_loader, evaluator, optimizer,
             meters['itc_loss'].update(ret.get('itc_loss', 0), batch_size)
             meters['id_loss'].update(ret.get('id_loss', 0), batch_size)
             meters['mlm_loss'].update(ret.get('mlm_loss', 0), batch_size)
+            meters['cons_loss'].update(cons_loss.item(), batch_size)
+            meters['delta_sim'].update(delta_sim.item(), batch_size)
 
             meters['img_acc'].update(ret.get('img_acc', 0), batch_size)
             meters['txt_acc'].update(ret.get('txt_acc', 0), batch_size)

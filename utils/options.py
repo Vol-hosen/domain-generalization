@@ -29,6 +29,10 @@ def get_args():
     parser.add_argument("--loss_names", default='sdm+id+mlm', help="which loss to use ['mlm', 'cmpm', 'id', 'itc', 'sdm']")
     parser.add_argument("--mlm_loss_weight", type=float, default=1.0, help="mlm loss weight")
     parser.add_argument("--id_loss_weight", type=float, default=1.0, help="id loss weight")
+    parser.add_argument("--cons_loss_weight", type=float, default=1.0, help="consistency loss weight")
+
+    ######################## consistency training settings ########################
+    parser.add_argument("--cons_eps", type=float, default=1e-3, help="consistency training perturbation epsilon")
     
     ######################## vison trainsformer settings ########################
     parser.add_argument("--img_size", type=tuple, default=(384, 128))

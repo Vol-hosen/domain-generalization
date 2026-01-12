@@ -1,0 +1,61 @@
+# ========================
+# Python 常规忽略
+# ========================
+__pycache__/
+*.py[cod]
+*.so
+*.egg-info/
+*.egg
+*.pyo
+*.pyd
+
+# 虚拟环境
+venv/
+env/
+.venv/
+ENV/
+
+# ========================
+# PyTorch / TensorFlow
+# ========================
+*.pt
+*.pth
+*.ckpt
+*.h5
+
+# ========================
+# 日志 & 临时文件
+# ========================
+*.log
+*.out
+*.err
+*.tmp
+*.csv
+*.tsv
+
+# TensorBoard / visdom
+runs/
+events.out.tfevents.*
+
+# ========================
+# 数据集（大文件）
+# ========================
+data/
+#datasets/
+*.zip
+*.tar.gz
+
+# ========================
+# VSCode / IDE
+# ========================
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# ========================
+# Shell / MacOS / Windows 临时文件
+# ========================
+*.swp
+*.DS_Store
+Thumbs.db
