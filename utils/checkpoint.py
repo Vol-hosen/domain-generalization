@@ -44,14 +44,14 @@ class Checkpointer:
         self.logger.info("Saving checkpoint to {}".format(save_file))
         torch.save(data, save_file)
 
-    def load(self, f=None):
+    def load(self, f=None,except_keys=None):
         if not f:
             # no checkpoint could be found
             self.logger.info("No checkpoint found.")
             return {}
         self.logger.info("Loading checkpoint from {}".format(f))
         checkpoint = self._load_file(f)
-        self._load_model(checkpoint)
+        self._load_model(checkpoint, except_keys=except_keys)
 
     def resume(self, f=None):
         if not f:

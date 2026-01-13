@@ -33,7 +33,8 @@ def do_train(start_epoch, args, model, train_loader, evaluator, optimizer,
         "txt_acc": AverageMeter(),
         "mlm_acc": AverageMeter(),
         "cons_loss": AverageMeter(),
-        "delta_sim": AverageMeter()
+        "delta_sim": AverageMeter(),
+        "top1_consistency": AverageMeter()
     }
 
     tb_writer = SummaryWriter(log_dir=args.output_dir)
@@ -73,19 +74,51 @@ def do_train(start_epoch, args, model, train_loader, evaluator, optimizer,
                 i_feats = F.normalize(i_feats, dim=1)
                 t_feats = F.normalize(t_feats, dim=1)
 
+
                 # --- Consistency Loss ---
+                temp = 0.07
+                logits_orig = i_feats @ t_feats.t() / temp
+                logits_pert = i_feats_pert @ t_feats.t() / temp
+
+                # 3. 将 MSE 换成 KL 散度
+                p_orig = F.softmax(logits_orig.detach(), dim=-1)
+                log_p_pert = F.log_softmax(logits_pert, dim=-1)
+
+                K = 5 
+                # 1. 找到原始输出中相似度最高的 K 个索引
+                topk_indices = logits_orig.topk(K, dim=1).indices # [Batch, K]
+
+                # 2. 从原始 Logits 中提取这 K 个位置的原始得分 (注意：是取 logits 而不是 p)
+                logits_orig_k = torch.gather(logits_orig, 1, topk_indices)
+                logits_pert_k = torch.gather(logits_pert, 1, topk_indices)
+
+                # 3. 对这 K 个得分重新进行 Softmax，构建“局部分布”
+                # 这样确保了这 K 个概率加起来等于 1
+                p_orig_k = F.softmax(logits_orig_k.detach(), dim=-1)
+                log_p_pert_k = F.log_softmax(logits_pert_k, dim=-1)
+
+                # 4. 计算局部 KL 散度
+                cons_loss = F.kl_div(log_p_pert_k, p_orig_k.detach(), reduction='batchmean')
+
+                # 计算两个分布的一致性
+                #cons_loss = F.kl_div(log_p_pert, p_orig.detach(), reduction='batchmean')
+                
                 sim_orig = F.cosine_similarity(i_feats, t_feats, dim=1)
                 sim_pert = F.cosine_similarity(i_feats_pert, t_feats, dim=1)
 
-                cons_loss = F.mse_loss(sim_pert, sim_orig.detach())
+                
 
                 # --- Logging (非常重要) ---
                 with torch.no_grad():
                     delta_sim = torch.abs(sim_orig - sim_pert).mean()
                     # 可以通过 wandb 或 tensorboard 监控这个值
+                    top1_orig = logits_orig.argmax(dim=1)
+                    top1_pert = logits_pert.argmax(dim=1)
+                    top1_consistency = (top1_orig == top1_pert).float().mean()
             else:
                 cons_loss = torch.tensor(0.0).to(device)
                 delta_sim = torch.tensor(0.0).to(device)
+                top1_consistency = torch.tensor(0.0).to(device)
             total_loss = sum([v for k, v in ret.items() if "loss" in k])
             total_loss += args.cons_loss_weight * cons_loss
 
@@ -97,6 +130,7 @@ def do_train(start_epoch, args, model, train_loader, evaluator, optimizer,
             meters['mlm_loss'].update(ret.get('mlm_loss', 0), batch_size)
             meters['cons_loss'].update(cons_loss.item(), batch_size)
             meters['delta_sim'].update(delta_sim.item(), batch_size)
+            meters['top1_consistency'].update(top1_consistency.item(), batch_size)
 
             meters['img_acc'].update(ret.get('img_acc', 0), batch_size)
             meters['txt_acc'].update(ret.get('txt_acc', 0), batch_size)
@@ -112,7 +146,13 @@ def do_train(start_epoch, args, model, train_loader, evaluator, optimizer,
                 # log loss and acc info
                 for k, v in meters.items():
                     if v.avg > 0:
-                        info_str += f", {k}: {v.avg:.4f}"
+                        #info_str += f", {k}: {v.avg:.4f}"
+                        if k == 'delta_sim' or k == 'cons_loss':
+                            # 对 delta_sim 使用科学计数法，保留 2 位小数
+                            info_str += f", {k}: {v.avg:.2e}" 
+                        else:
+                            # 其他指标依然使用原来的 4 位小数
+                            info_str += f", {k}: {v.avg:.4f}"
                 info_str += f", Base Lr: {scheduler.get_lr()[0]:.2e}"
                 logger.info(info_str)
         

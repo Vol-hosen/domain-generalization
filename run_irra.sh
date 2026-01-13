@@ -7,7 +7,7 @@ GPU_ID=0               # 指定空闲的 GPU
 export CUDA_VISIBLE_DEVICES=$GPU_ID
 
 python train.py \
---name irra-cuhk-mse-v2 \
+--name irra-cuhk-kl-v2 \
 --img_aug \
 --batch_size 64 \
 --MLM \
@@ -16,4 +16,5 @@ python train.py \
 --num_epoch 60 \
 --num_workers 8 \
 --root_dir $DATA_DIR  \
---cons_eps 5e-3 \
+--cons_eps 5e-2 \
+--cons_warmup_epochs 5 \
