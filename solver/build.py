@@ -1,7 +1,7 @@
 import torch
 
 from .lr_scheduler import LRSchedulerWithWarmup
-
+from . import sam
 
 def build_optimizer(args, model):
     params = []
@@ -45,6 +45,17 @@ def build_optimizer(args, model):
         )
     else:
         NotImplementedError
+    
+    if args.use_sam:  # 新增开关
+        optimizer = sam.SAM(
+        model.parameters(), 
+        torch.optim.AdamW,  # 传入类
+        rho=0.05, 
+        lr=1e-4, 
+        weight_decay=0.01
+    )
+    else:
+        optimizer = optimizer
 
     return optimizer
 

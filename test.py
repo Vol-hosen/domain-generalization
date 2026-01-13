@@ -38,3 +38,4 @@ if __name__ == '__main__':
     do_inference(model, test_img_loader, test_txt_loader)
     #python test.py --config_file 'logs/CUHK-PEDES/20260112_201928_irra-cuhk-mse-v2/configs.yaml'
     #python test.py --config_file 'logs/CUHK-PEDES/20260112_173820_irra-cuhk/configs.yaml'
+    #python test.py --config_file 'logs/ICFG-PEDES/20260113_173539_irra-icfg-kl-v2/configs.yaml'

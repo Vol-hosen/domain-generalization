@@ -51,95 +51,94 @@ def do_train(start_epoch, args, model, train_loader, evaluator, optimizer,
         for n_iter, batch in enumerate(train_loader):
             batch = {k: v.to(device) for k, v in batch.items()}
 
-            ret = model(batch)
-            if epoch > args.cons_warmup_epochs:
-                
-
-                i_feats = ret['i_feats']
-                t_feats = ret['t_feats']
-
-                # Phase-1: random embedding perturbation
-                epsilon = args.cons_eps  # e.g. 1e-3
-                with torch.no_grad():
-                    # 1. 生成原始噪声
-                    noise = torch.randn_like(i_feats)
-                    # 2. 投影到切平面: noise = noise - (noise · feat) * feat
-                    # 这样确保 noise ⊥ i_feats
-                    #noise = noise - (noise * i_feats).sum(dim=1, keepdim=True) * i_feats
-                    # 3. 单位化噪声方向，并缩放到 epsilon 步长
-                    noise = F.normalize(noise, dim=1) 
-
-                # 4. 在切平面方向施加扰动并重新归一化（回到球面上）
-                i_feats_pert = F.normalize(i_feats + epsilon * noise, dim=1)
-                i_feats = F.normalize(i_feats, dim=1)
-                t_feats = F.normalize(t_feats, dim=1)
-
-
-                # --- Consistency Loss ---
-                temp = 0.07
-                logits_orig = i_feats @ t_feats.t() / temp
-                logits_pert = i_feats_pert @ t_feats.t() / temp
-
-                # 3. 将 MSE 换成 KL 散度
-                p_orig = F.softmax(logits_orig.detach(), dim=-1)
-                log_p_pert = F.log_softmax(logits_pert, dim=-1)
-
-                K = 5 
-                # 1. 找到原始输出中相似度最高的 K 个索引
-                topk_indices = logits_orig.topk(K, dim=1).indices # [Batch, K]
-
-                # 2. 从原始 Logits 中提取这 K 个位置的原始得分 (注意：是取 logits 而不是 p)
-                logits_orig_k = torch.gather(logits_orig, 1, topk_indices)
-                logits_pert_k = torch.gather(logits_pert, 1, topk_indices)
-
-                # 3. 对这 K 个得分重新进行 Softmax，构建“局部分布”
-                # 这样确保了这 K 个概率加起来等于 1
-                p_orig_k = F.softmax(logits_orig_k.detach(), dim=-1)
-                log_p_pert_k = F.log_softmax(logits_pert_k, dim=-1)
-
-                # 4. 计算局部 KL 散度
-                cons_loss = F.kl_div(log_p_pert_k, p_orig_k.detach(), reduction='batchmean')
-
-                # 计算两个分布的一致性
-                #cons_loss = F.kl_div(log_p_pert, p_orig.detach(), reduction='batchmean')
-                
-                sim_orig = F.cosine_similarity(i_feats, t_feats, dim=1)
-                sim_pert = F.cosine_similarity(i_feats_pert, t_feats, dim=1)
-
-                
-
-                # --- Logging (非常重要) ---
-                with torch.no_grad():
-                    delta_sim = torch.abs(sim_orig - sim_pert).mean()
-                    # 可以通过 wandb 或 tensorboard 监控这个值
-                    top1_orig = logits_orig.argmax(dim=1)
-                    top1_pert = logits_pert.argmax(dim=1)
-                    top1_consistency = (top1_orig == top1_pert).float().mean()
-            else:
+            # --- 定义一个内部函数，用于复用 Loss 计算逻辑 ---
+            def calculate_loss(batch_data):
+                ret = model(batch_data)
+                # 初始化 cons_loss 相关变量
                 cons_loss = torch.tensor(0.0).to(device)
                 delta_sim = torch.tensor(0.0).to(device)
                 top1_consistency = torch.tensor(0.0).to(device)
-            total_loss = sum([v for k, v in ret.items() if "loss" in k])
-            total_loss += args.cons_loss_weight * cons_loss
 
+                if epoch > args.cons_warmup_epochs:
+                    i_feats = ret['i_feats']
+                    t_feats = ret['t_feats']
+
+                    # Phase-1: random embedding perturbation
+                    epsilon = args.cons_eps 
+                    with torch.no_grad():
+                        #noise = torch.randn_like(i_feats)
+                        #noise = F.normalize(noise, dim=1) 
+                        # 建议比例 0.1~0.2
+                        mask = (torch.rand_like(i_feats) > 0.15).float()
+                        
+
+                        
+                    i_feats_pert = F.normalize(i_feats * mask, dim=1)
+                    #i_feats_pert = F.normalize(i_feats + epsilon * noise, dim=1)
+                    i_feats = F.normalize(i_feats, dim=1)
+                    t_feats = F.normalize(t_feats, dim=1)
+
+                    # Consistency Loss (KL)
+                    temp = 0.07
+                    logits_orig = i_feats @ t_feats.t() / temp
+                    logits_pert = i_feats_pert @ t_feats.t() / temp
+
+                    K = 5 
+                    topk_indices = logits_orig.topk(K, dim=1).indices
+                    logits_orig_k = torch.gather(logits_orig, 1, topk_indices)
+                    logits_pert_k = torch.gather(logits_pert, 1, topk_indices)
+
+                    p_orig_k = F.softmax(logits_orig_k.detach(), dim=-1)
+                    log_p_pert_k = F.log_softmax(logits_pert_k, dim=-1)
+                    cons_loss = F.kl_div(log_p_pert_k, p_orig_k.detach(), reduction='batchmean')
+
+                    # Logging 辅助计算
+                    with torch.no_grad():
+                        sim_orig = F.cosine_similarity(i_feats, t_feats, dim=1)
+                        sim_pert = F.cosine_similarity(i_feats_pert, t_feats, dim=1)
+                        delta_sim = torch.abs(sim_orig - sim_pert).mean()
+                        top1_orig = logits_orig.argmax(dim=1)
+                        top1_pert = logits_pert.argmax(dim=1)
+                        top1_consistency = (top1_orig == top1_pert).float().mean()
+
+                # 计算总 Loss
+                current_total_loss = sum([v for k, v in ret.items() if "loss" in k])
+                current_total_loss += args.cons_loss_weight * cons_loss
+                
+                return current_total_loss, ret, cons_loss, delta_sim, top1_consistency
+
+            # --- 真正的训练步开始 ---
+            
+            if args.use_sam:
+                # SAM 第一次迭代：正常计算梯度并寻找“最坏”点
+                total_loss, ret, cons_l, d_sim, t1_cons = calculate_loss(batch)
+                total_loss.backward()
+                optimizer.first_step(zero_grad=True)
+
+                # SAM 第二次迭代：在最坏点处计算梯度
+                # 注意：必须重新运行 calculate_loss，因为参数已经变了
+                total_loss_2, _, _, _, _ = calculate_loss(batch)
+                total_loss_2.backward()
+                optimizer.second_step(zero_grad=True)
+            else:
+                # 常规训练
+                optimizer.zero_grad()
+                total_loss, ret, cons_l, d_sim, t1_cons = calculate_loss(batch)
+                total_loss.backward()
+                optimizer.step()
+
+            synchronize()
+
+            # --- Meters 更新 (使用第一次 forward 的结果即可) ---
             batch_size = batch['images'].shape[0]
             meters['loss'].update(total_loss.item(), batch_size)
             meters['sdm_loss'].update(ret.get('sdm_loss', 0), batch_size)
             meters['itc_loss'].update(ret.get('itc_loss', 0), batch_size)
             meters['id_loss'].update(ret.get('id_loss', 0), batch_size)
             meters['mlm_loss'].update(ret.get('mlm_loss', 0), batch_size)
-            meters['cons_loss'].update(cons_loss.item(), batch_size)
-            meters['delta_sim'].update(delta_sim.item(), batch_size)
-            meters['top1_consistency'].update(top1_consistency.item(), batch_size)
-
-            meters['img_acc'].update(ret.get('img_acc', 0), batch_size)
-            meters['txt_acc'].update(ret.get('txt_acc', 0), batch_size)
-            meters['mlm_acc'].update(ret.get('mlm_acc', 0), 1)
-
-            optimizer.zero_grad()
-            total_loss.backward()
-            optimizer.step()
-            synchronize()
+            meters['cons_loss'].update(cons_l.item(), batch_size)
+            meters['delta_sim'].update(d_sim.item(), batch_size)
+            meters['top1_consistency'].update(t1_cons.item(), batch_size)
 
             if (n_iter + 1) % log_period == 0:
                 info_str = f"Epoch[{epoch}] Iteration[{n_iter + 1}/{len(train_loader)}]"

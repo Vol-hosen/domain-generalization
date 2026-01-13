@@ -44,6 +44,7 @@ def get_args():
 
     ######################## solver ########################
     parser.add_argument("--optimizer", type=str, default="Adam", help="[SGD, Adam, Adamw]")
+    parser.add_argument("--use_sam", default=False, action='store_true', help="whether to use SAM optimizer")
     parser.add_argument("--lr", type=float, default=1e-5)
     parser.add_argument("--bias_lr_factor", type=float, default=2.)
     parser.add_argument("--momentum", type=float, default=0.9)
