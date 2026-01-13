@@ -1,13 +1,13 @@
 #!/bin/bash
-DATASET_NAME="CUHK-PEDES" # 或者 CUHK-PEDES
+DATASET_NAME="ICFG-PEDES" # 或者 CUHK-PEDES
 DATA_DIR='/mnt/hardisk/wucan/datasets/'
-GPU_ID=0               # 指定空闲的 GPU
+GPU_ID=2               # 指定空闲的 GPU
 
 # --- 运行命令 ---
 export CUDA_VISIBLE_DEVICES=$GPU_ID
 
 python train.py \
---name irra-cuhk-kl-v2 \
+--name irra-icfg-kl-v2 \
 --img_aug \
 --batch_size 64 \
 --MLM \

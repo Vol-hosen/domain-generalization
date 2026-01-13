@@ -108,7 +108,7 @@ def do_train(start_epoch, args, model, train_loader, evaluator, optimizer,
                 return current_total_loss, ret, cons_loss, delta_sim, top1_consistency
 
             # --- 真正的训练步开始 ---
-            
+            #TODO:SAM实现有bug，先不启用，理论上启用后效果会更好
             if args.use_sam:
                 # SAM 第一次迭代：正常计算梯度并寻找“最坏”点
                 total_loss, ret, cons_l, d_sim, t1_cons = calculate_loss(batch)
@@ -128,6 +128,7 @@ def do_train(start_epoch, args, model, train_loader, evaluator, optimizer,
                 optimizer.step()
 
             synchronize()
+            
 
             # --- Meters 更新 (使用第一次 forward 的结果即可) ---
             batch_size = batch['images'].shape[0]
@@ -161,8 +162,8 @@ def do_train(start_epoch, args, model, train_loader, evaluator, optimizer,
             if v.avg > 0:
                 tb_writer.add_scalar(k, v.avg, epoch)
 
-
         scheduler.step()
+        
         if get_rank() == 0:
             end_time = time.time()
             time_per_batch = (end_time - start_time) / (n_iter + 1)
