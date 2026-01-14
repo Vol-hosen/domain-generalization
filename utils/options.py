@@ -30,6 +30,7 @@ def get_args():
     parser.add_argument("--mlm_loss_weight", type=float, default=1.0, help="mlm loss weight")
     parser.add_argument("--id_loss_weight", type=float, default=1.0, help="id loss weight")
     parser.add_argument("--cons_loss_weight", type=float, default=1.0, help="consistency loss weight")
+    parser.add_argument("--topo_loss_weight", type=float, default=1.0, help="topology loss weight")
 
     ######################## consistency training settings ########################
     parser.add_argument("--cons_eps", type=float, default=1e-3, help="consistency training perturbation epsilon")

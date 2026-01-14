@@ -37,6 +37,7 @@ def do_train(start_epoch, args, model, train_loader, evaluator, optimizer,
         "delta_sim": AverageMeter(),
         "top1_consistency": AverageMeter(),
         "mixup_loss": AverageMeter(),
+        "topo_loss": AverageMeter(),
     }
 
     tb_writer = SummaryWriter(log_dir=args.output_dir)
@@ -61,6 +62,7 @@ def do_train(start_epoch, args, model, train_loader, evaluator, optimizer,
                 delta_sim = torch.tensor(0.0).to(device)
                 top1_consistency = torch.tensor(0.0).to(device)
                 mixup_loss = torch.tensor(0.0).to(device)
+                topo_loss = torch.tensor(0.0).to(device)
 
                 if epoch > args.cons_warmup_epochs:
                     i_feats = ret['i_feats']
@@ -144,30 +146,37 @@ def do_train(start_epoch, args, model, train_loader, evaluator, optimizer,
                         top1_pert = logits_pert.argmax(dim=1)
                         top1_consistency = (top1_orig == top1_pert).float().mean()
 
+                    #topo-loss
+                    if 'topo' in args.loss_names:
+                        wi = objectives.compute_pair_reliability(
+                            ret['i_feats'], ret['t_feats'], args.temperature)
+                        topo_loss = objectives.compute_topo_loss(
+                            ret['i_feats'], ret['t_feats'], args.temperature,wi)
                 # 计算总 Loss
                 current_total_loss = sum([v for k, v in ret.items() if "loss" in k])
                 current_total_loss += args.cons_loss_weight * cons_loss
-                current_total_loss += args.mixup_loss_weight * mixup_loss 
+                current_total_loss += args.mixup_loss_weight * mixup_loss
+                current_total_loss += args.topo_loss_weight * topo_loss
                 
-                return current_total_loss, ret, cons_loss, delta_sim, top1_consistency,mixup_loss
+                return current_total_loss, ret, cons_loss, delta_sim, top1_consistency,mixup_loss,topo_loss
 
             # --- 真正的训练步开始 ---
             #TODO:SAM实现有bug，先不启用，理论上启用后效果会更好
             if args.use_sam:
                 # SAM 第一次迭代：正常计算梯度并寻找“最坏”点
-                total_loss, ret, cons_l, d_sim, t1_cons, mixup_loss = calculate_loss(batch)
+                total_loss, ret, cons_l, d_sim, t1_cons, mixup_loss, topo_loss = calculate_loss(batch)
                 total_loss.backward()
                 optimizer.first_step(zero_grad=True)
 
                 # SAM 第二次迭代：在最坏点处计算梯度
                 # 注意：必须重新运行 calculate_loss，因为参数已经变了
-                total_loss_2, _, _, _, _, _ = calculate_loss(batch)
+                total_loss_2, _, _, _, _, _,_ = calculate_loss(batch)
                 total_loss_2.backward()
                 optimizer.second_step(zero_grad=True)
             else:
                 # 常规训练
                 optimizer.zero_grad()
-                total_loss, ret, cons_l, d_sim, t1_cons, mixup_loss = calculate_loss(batch)
+                total_loss, ret, cons_l, d_sim, t1_cons, mixup_loss,topo_loss = calculate_loss(batch)
                 total_loss.backward()
                 optimizer.step()
 
@@ -183,6 +192,7 @@ def do_train(start_epoch, args, model, train_loader, evaluator, optimizer,
             meters['mlm_loss'].update(ret.get('mlm_loss', 0), batch_size)
             meters['cons_loss'].update(cons_l.item(), batch_size)
             meters['mixup_loss'].update(mixup_loss.item(), batch_size)
+            meters['topo_loss'].update(topo_loss.item(), batch_size)
             meters['delta_sim'].update(d_sim.item(), batch_size)
             meters['top1_consistency'].update(t1_cons.item(), batch_size)
 
@@ -192,7 +202,7 @@ def do_train(start_epoch, args, model, train_loader, evaluator, optimizer,
                 for k, v in meters.items():
                     if v.avg > 0:
                         #info_str += f", {k}: {v.avg:.4f}"
-                        if k == 'delta_sim' or k == 'cons_loss':
+                        if k == 'delta_sim' or k == 'cons_loss' or k == 'topo_loss':
                             # 对 delta_sim 使用科学计数法，保留 2 位小数
                             info_str += f", {k}: {v.avg:.2e}" 
                         else:

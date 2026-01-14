@@ -168,3 +168,69 @@ def manifold_mixup_nn_threshold(
     )
 
     return mixed_feats, mix_idx, lam, mix_mask
+
+def compute_pair_reliability(i_feats, t_feats, temperature=0.07):
+    """
+    i_feats: [B, D]
+    t_feats: [B, D]
+    returns: wi [B]
+    """
+    B = i_feats.shape[0]
+    # 1. 计算 batch 内图文相似度
+    sim_matrix = (i_feats @ t_feats.T) / temperature  # [B, B]
+    
+    # 2. 正样本对相似度（对角线）
+    pos_sim = sim_matrix.diag()  # [B]
+    
+    # 3. 负样本统计
+    neg_mask = 1.0 - torch.eye(B, device=sim_matrix.device)
+    neg_sim = sim_matrix[neg_mask.bool()].view(B, B-1)  # [B, B-1]
+    
+    neg_mean = neg_sim.mean(dim=1)
+    neg_std = neg_sim.std(dim=1) + 1e-8  # 防止除零
+    
+    # 4. 可靠性评分 (z-score)
+    reliability = (pos_sim - neg_mean) / neg_std
+    
+    # 5. 映射到 [0, 1] (sigmoid)
+    wi = torch.sigmoid(reliability)
+    
+    return wi  # [B]
+
+def compute_topo_loss(i_feats, t_feats, temperature=0.07, wi=None):
+    # 1. 强制归一化
+    i_feats = F.normalize(i_feats, dim=1)
+    t_feats = F.normalize(t_feats, dim=1)
+    
+
+    B = i_feats.shape[0]
+    mask = torch.eye(B, device=i_feats.device).bool()
+    
+    # 2. 计算文本拓扑 (作为目标，无梯度)
+    with torch.no_grad():
+        # [B, B]
+        logits_txt = (t_feats @ t_feats.T) / temperature
+        logits_txt.masked_fill_(mask, -1e9) 
+        M_txt = F.softmax(logits_txt, dim=1) 
+    
+  
+    
+
+    # 3. 计算图像拓扑 (使用 log_softmax 保证数值稳定)
+    logits_img = (i_feats @ i_feats.T) / temperature
+
+    # 将对角线填为极小值，使其在 Softmax 后概率为 0
+    logits_img.masked_fill_(mask, -1e9)
+    log_M_img = F.log_softmax(logits_img, dim=1)
+    
+    # 4. 计算每行的 KL 散度
+    # 注意：kl_div 的输入顺序是 (input_log_probs, target_probs)
+    kl_per_row = F.kl_div(log_M_img, M_txt, reduction='none').sum(dim=1)
+    
+    # 5. 应用 Module 1 的权重
+    if wi is not None:
+        loss_topo = (wi * kl_per_row).mean()
+    else:
+        loss_topo = kl_per_row.mean()
+        
+    return loss_topo
