@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-
+import numpy as np
 
 def compute_sdm(image_fetures, text_fetures, pid, logit_scale, image_id=None, factor=0.3, epsilon=1e-8):
     """
@@ -117,3 +117,54 @@ def compute_cmpm(image_embeddings, text_embeddings, labels, epsilon=1e-8):
 
     return cmpm_loss
 
+def manifold_mixup_nn_threshold(
+    feats,
+    alpha=0.2,
+    sim_th=0.5,
+    detach=True
+):
+    """
+    Nearest-Neighbor Manifold Mixup with similarity threshold
+
+    Args:
+        feats: Tensor [B, D]
+        alpha: Beta distribution parameter
+        sim_th: similarity threshold (cosine similarity)
+        detach: whether to detach original feats
+
+    Returns:
+        mixed_feats: [B, D]
+        mix_idx: [B]  (nearest neighbor index)
+        lam: scalar
+        mix_mask: [B] boolean mask, whether mixup is applied
+    """
+    B = feats.size(0)
+
+    if alpha > 0:
+        lam = np.random.beta(alpha, alpha)
+    else:
+        lam = 1.0
+
+    # ---- normalize for cosine similarity ----
+    feats_norm = F.normalize(feats, dim=1)
+
+    # ---- similarity matrix ----
+    sim = feats_norm @ feats_norm.t()      # [B, B]
+    sim.fill_diagonal_(-1)                  # avoid self-mix
+
+    # ---- nearest neighbor & similarity ----
+    max_sim, mix_idx = sim.max(dim=1)       # [B], [B]
+
+    # ---- similarity gate ----
+    mix_mask = max_sim > sim_th             # [B] boolean
+
+    # ---- optional gradient decoupling ----
+    src_feats = feats.detach() if detach else feats
+
+    mixed_feats = src_feats.clone()
+    mixed_feats[mix_mask] = (
+        lam * src_feats[mix_mask] +
+        (1 - lam) * src_feats[mix_idx[mix_mask]]
+    )
+
+    return mixed_feats, mix_idx, lam, mix_mask

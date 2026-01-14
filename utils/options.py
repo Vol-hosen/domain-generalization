@@ -34,6 +34,14 @@ def get_args():
     ######################## consistency training settings ########################
     parser.add_argument("--cons_eps", type=float, default=1e-3, help="consistency training perturbation epsilon")
     parser.add_argument("--cons_warmup_epochs", type=int, default=10, help="after how many epochs to start consistency training")
+
+    ######################## mixup training settings ########################
+    parser.add_argument("--use_mixup", default=False, action='store_true', help="whether to use mixup augmentation for consistency training")
+    parser.add_argument("--mixup_alpha", type=float, default=0.2, help="mixup beta distribution parameter")
+    parser.add_argument("--mixup_sim_th", type=float, default=0.5, help="mixup similarity threshold")
+    parser.add_argument("--mixup_loss_weight", type=float, default=1.0, help="mixup loss weight")
+    parser.add_argument("--mixup_temp", type=float, default=0.1, help="mixup sharpening temperature")
+    parser.add_argument("--mixup_detach", default=False, action='store_true', help="whether to detach original features in mixup")
     ######################## vison trainsformer settings ########################
     parser.add_argument("--img_size", type=tuple, default=(384, 128))
     parser.add_argument("--stride_size", type=int, default=16)
